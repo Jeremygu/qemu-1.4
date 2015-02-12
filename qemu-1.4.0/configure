@@ -1385,6 +1385,34 @@ esac
 fi
 
 ##########################################
+# dmbus probe
+
+if test "$xen" != "no"; then
+    dmbus_libs="-lv4v_nointerposer -ldmbus"
+    cat > $TMPC << EOF &&
+#include <libv4v.h>
+#include <libdmbus.h>
+int main(void) {
+    int fd;
+    unsigned int port;
+    struct dmbus_conn_prologue prologue;
+
+    fd = v4v_socket(SOCK_STREAM);
+    port = DMBUS_BASE_PORT;
+    (void) port;
+    (void) prologue;
+
+
+    return fd;
+}
+EOF
+    if ! compile_prog "" "$dmbus_libs" ; then
+        feature_not_found "dmbus"
+    fi
+    libs_softmmu="$dmbus_libs $libs_softmmu"
+fi
+
+##########################################
 # pkg-config probe
 
 if ! has "$pkg_config_exe"; then
