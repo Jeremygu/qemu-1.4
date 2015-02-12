@@ -1,10 +1,5 @@
 /*
-s
-
-
-
-
-* QEMU System Emulator
+ * QEMU System Emulator
  *
  * Copyright (c) 2003-2008 Fabrice Bellard
  *
