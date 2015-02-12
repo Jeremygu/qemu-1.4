@@ -73,11 +73,15 @@ static struct {
     int buffer_size_out_overridden;
     int period_size_out_overridden;
     int verbose;
+
+    /* OpenXT: ALSA simple element used to control the master volume of the guest.*/
+    char const *volume_control;
 } conf = {
     .buffer_size_out = 4096,
     .period_size_out = 1024,
     .pcm_name_out = "default",
     .pcm_name_in = "default",
+    .volume_control = "master",
 };
 
 struct alsa_params_req {
@@ -505,6 +509,22 @@ static int alsa_open (int in, struct alsa_params_req *req,
         return -1;
     }
 
+#if 0   // TODO: I really don't see why ...
+    /* OXT: Close & re-open, work-around to take over volume control. */
+    err = snd_pcm_close(handle);
+    if (err < 0) {
+        alsa_logerr2(err, typ, "Failed to close `%s':\n", pcm_name);
+        return -1;
+    }
+    err = snd_pcm_open(&handle, pcm_name,
+                       in ? SND_PCM_STREAM_CAPTURE : SND_PCM_STREAM_PLAYBACK,
+                       SND_PCM_NONBLOCK);
+    if (err < 0) {
+        alsa_logerr2(err, typ, "Failed to re-open `%s':\n", pcm_name);
+        return -1;
+    }
+#endif
+
     err = snd_pcm_hw_params_any (handle, hw_params);
     if (err < 0) {
         alsa_logerr2 (err, typ, "Failed to initialize hardware parameters\n");
@@ -704,6 +724,117 @@ static int alsa_open (int in, struct alsa_params_req *req,
     return -1;
 }
 
+struct guest_mixer {
+    const char *card;
+    snd_mixer_t *handle;
+#define GUEST_SELEMS_LAST 3
+    snd_mixer_selem_id_t *selems[GUEST_SELEMS_LAST];
+    unsigned int selems_count;
+};
+static struct guest_mixer *guest_mixer = NULL;
+
+static struct guest_mixer *vm_mixer_init(const char *card_name)
+{
+    struct guest_mixer *mixer;
+    int rc;
+
+    mixer = audio_calloc(__FUNCTION__, 1, sizeof (*mixer));
+
+    mixer->card = card_name;
+    rc = snd_mixer_open(&(mixer->handle), 0);
+    if (rc < 0) {
+        alsa_logerr(-rc, "snd_mixer_open() failed.");
+        return NULL;
+    }
+    rc = snd_mixer_attach(mixer->handle, mixer->card);
+    if (rc < 0) {
+        alsa_logerr(-rc, "snd_mixer_attach(%s) failed.", mixer->card);
+        goto failed;
+    }
+    rc = snd_mixer_selem_register(mixer->handle, NULL, NULL);
+    if (rc < 0) {
+        alsa_logerr(-rc, "snd_mixer_selem_register() failed.");
+        goto failed;
+    }
+    rc = snd_mixer_load(mixer->handle);
+    if (rc < 0) {
+        alsa_logerr(-rc, "snd_mixer_load() failed.");
+        goto failed;
+    }
+    return mixer;
+
+failed:
+    snd_mixer_close(mixer->handle);
+    g_free(mixer);
+    return NULL;
+}
+
+static void vm_mixer_release(struct guest_mixer *mixer)
+{
+    snd_mixer_close(mixer->handle);
+    g_free(mixer);
+}
+
+static int vm_mixer_selem_create(struct guest_mixer *mixer, unsigned int id, const char *name)
+{
+    if (mixer->selems_count > GUEST_SELEMS_LAST) {
+        return -EINVAL;
+    }
+    if (mixer->selems[id]) {
+        return -EEXIST;
+    }
+    snd_mixer_selem_id_t *sid;
+
+    snd_mixer_selem_id_malloc(&sid);
+    mixer->selems[id] = sid;
+    ++(mixer->selems_count);
+    snd_mixer_selem_id_set_index(sid, id);
+    snd_mixer_selem_id_set_name(sid, name);
+    if (!snd_mixer_find_selem(mixer->handle, sid)) {
+        return -ENOENT;
+    }
+    return 0;
+}
+
+static void vm_mixer_selem_release(struct guest_mixer *mixer, unsigned int id)
+{
+    if ((mixer->selems_count <= 0) || (id > GUEST_SELEMS_LAST) || (mixer->selems[id] == NULL)) {
+        return;
+    }
+    snd_mixer_selem_id_free(mixer->selems[id]);
+    mixer->selems[id] = NULL;
+    --(mixer->selems_count);
+}
+
+static int vm_mixer_selem_set_playback_volume_stereo(struct guest_mixer *mixer, unsigned int id,
+                                              unsigned int right, unsigned int left, unsigned int mute)
+{
+    snd_mixer_elem_t *elem;
+    int rc = 0;
+
+    if ((mixer->selems_count <= 0) || (id > GUEST_SELEMS_LAST) || (mixer->selems[id] == NULL)) {
+        return -EINVAL;
+    }
+    elem = snd_mixer_find_selem(mixer->handle, mixer->selems[id]);
+    if (!elem) {
+        return -ENOENT;
+    }
+    if (snd_mixer_selem_has_playback_switch(elem)) {
+        snd_mixer_selem_set_playback_switch(elem, SND_MIXER_SCHN_FRONT_LEFT, mute);
+        snd_mixer_selem_set_playback_switch(elem, SND_MIXER_SCHN_FRONT_RIGHT, mute);
+    }
+    rc = snd_mixer_selem_set_playback_volume(elem, SND_MIXER_SCHN_FRONT_LEFT, left);
+    if (rc) {
+        alsa_logerr(-rc, "snd_mixer_selem_set_playback_volume() failed on FRONT_LEFT for %u.", left);
+        return rc;
+    }
+    rc = snd_mixer_selem_set_playback_volume(elem, SND_MIXER_SCHN_FRONT_RIGHT, right);
+    if (rc) {
+        alsa_logerr(-rc, "snd_mixer_selem_set_playback_volume() failed on FRONT_RIGHT for %u.", right);
+    }
+    return rc;
+}
+
 static snd_pcm_sframes_t alsa_get_avail (snd_pcm_t *handle)
 {
     snd_pcm_sframes_t avail;
@@ -813,6 +944,8 @@ static void alsa_fini_out (HWVoiceOut *hw)
     ALSAVoiceOut *alsa = (ALSAVoiceOut *) hw;
 
     ldebug ("alsa_fini\n");
+    vm_mixer_selem_release(guest_mixer, 0);
+    vm_mixer_release(guest_mixer);
     alsa_anal_close (&alsa->handle, &alsa->pollhlp);
 
     if (alsa->pcm_buf) {
@@ -860,6 +993,15 @@ static int alsa_init_out (HWVoiceOut *hw, struct audsettings *as)
     }
 
     alsa->handle = handle;
+
+    // TODO: Put that somewhere in the conf structure maybe?
+    guest_mixer = vm_mixer_init("default");
+    if (!guest_mixer) {
+        dolog("Could not configure ALSA to control volume.");
+        return -1;
+    }
+    vm_mixer_selem_create(guest_mixer, 0, conf.volume_control);
+
     return 0;
 }
 
@@ -925,6 +1067,19 @@ static int alsa_ctl_out (HWVoiceOut *hw, int cmd, ...)
             alsa_fini_poll (&alsa->pollhlp);
         }
         return alsa_voice_ctl (alsa->handle, "playback", VOICE_CTL_PAUSE);
+
+    case VOICE_VOLUME:
+        {
+            va_list ap;
+            SWVoiceOut *sw;
+
+            va_start (ap, cmd);
+            sw = va_arg (ap, SWVoiceOut*);
+            va_end (ap);
+            ldebug("change volume level\n");
+            return vm_mixer_selem_set_playback_volume_stereo (guest_mixer, 0, sw->vol.r,
+                                                              sw->vol.l, sw->vol.mute);
+        }
     }
 
     return -1;
@@ -1227,6 +1382,13 @@ static struct audio_option alsa_options[] = {
         .tag         = AUD_OPT_BOOL,
         .valp        = &conf.verbose,
         .descr       = "Behave in a more verbose way"
+    },
+    {
+        /* OpenXT: Name of the Asla simple element used to control the master volume of the guest. */
+        .name        = "VOL_CTRL",
+        .tag         = AUD_OPT_STR,
+        .valp        = &conf.volume_control,
+        .descr       = "Volume control voice name"
     },
     { /* End of list */ }
 };

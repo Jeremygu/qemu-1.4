@@ -2023,9 +2023,10 @@ audio_drv_list=`echo "$audio_drv_list" | sed -e 's/,/ /g'`
 for drv in $audio_drv_list; do
     case $drv in
     alsa)
-    audio_drv_probe $drv alsa/asoundlib.h -lasound \
+    # OXT: Likely to fail for statically linked build.
+    audio_drv_probe $drv alsa/asoundlib.h "-lasound -lpthread -ldl" \
         "return snd_pcm_close((snd_pcm_t *)0);"
-    libs_softmmu="-lasound $libs_softmmu"
+    libs_softmmu="-lasound -lpthread -ldl $libs_softmmu"
     ;;
 
     fmod)

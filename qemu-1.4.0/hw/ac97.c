@@ -483,7 +483,29 @@ static void set_volume (AC97LinkState *s, int index, uint32_t val)
 {
     switch (index) {
     case AC97_Master_Volume_Mute:
+#if 0
+#define VOL_MASK 0x3f
+#define MAX_VOL_MASK 0xff
+        int mute = 0;
+        uint8_t rvol = 0;
+        uint8_t lvol = 0;
+
+        mute = (val >> MUTE_SHIFT) & 1;
+        rvol = val & MAX_VOL_MASK;
+        lvol = (val >> 8) & MAX_VOL_MASK;
+
+        if (rvol > VOL_MASK) {
+            rvol = VOL_MASK;
+        }
+        if (lvol > VOL_MASK) {
+            lvol = VOL_MASK;
+        }
+
+        rvol = 255 * (VOL_MASK - rvol) / VOL_MASK;
+        lvol = 255 * (VOL_MASK - lvol) / VOL_MASK;
+#endif
         val &= 0xbf3f;
+
         mixer_store (s, index, val);
         update_combined_volume_out (s);
         break;
