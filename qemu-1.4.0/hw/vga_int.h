@@ -76,6 +76,9 @@
 #define CH_ATTR_SIZE (160 * 100)
 #define VGA_MAX_HEIGHT 2048
 
+#define VGA_OXT_BASE			0x3800
+#define VGA_OXT_SPINLOCK		VGA_OXT_BASE
+
 struct vga_precise_retrace {
     int64_t ticks_per_char;
     int64_t total_chars;
@@ -180,6 +183,8 @@ typedef struct VGACommonState {
     vga_update_retrace_info_fn update_retrace_info;
     union vga_retrace retrace_info;
     uint8_t is_vbe_vmstate;
+    /* ioport spinlock */
+    bool locked;
 } VGACommonState;
 
 static inline int c6_to_8(int v)
