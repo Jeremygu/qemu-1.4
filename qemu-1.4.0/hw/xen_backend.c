@@ -38,6 +38,7 @@
 #include "char/char.h"
 #include "qemu/log.h"
 #include "xen_backend.h"
+#include "qmp-commands.h"
 
 #include <xen/grant_table.h>
 
@@ -589,6 +590,125 @@ static int xenstore_scan(const char *type, int dom, struct XenDevOps *ops)
     return 0;
 }
 
+/* XenClient: xc-emulated-nic-link-state-propagation
+ * Read the appropriate Base Register and check if we have to change the
+ * device status */
+static void xenstore_update_nic(char *watch, NetClientState *nc)
+{
+    char *tmp = NULL;
+    size_t len;
+    int val = 0;
+
+    fprintf(stderr, "%s xenstore_update_nic\n", nc->name);
+
+    tmp = xs_read(xenstore, XBT_NULL, watch, &len);
+
+    if (!tmp) {
+        fprintf(stderr, "failed to read xenstore path (%s)\n", watch);
+        return;
+    }
+
+    val = atoi(tmp) ? 1 : 0;
+
+    if (nc->link_down != val) {
+        fprintf(stderr, "%s link status change: link_down=%d\n",
+                nc->name, val);
+        qmp_set_link(nc->name, !val, NULL);
+    }
+
+    free(tmp);
+}
+
+/* XenClient: xc-emulated-nic-link-state-propagation
+ * Register a Net Client in the Xenstore Watcher. */
+int xenstore_register_nic(NetClientState *nc)
+{
+    char *dompath = NULL;
+    char type[5];
+    char path[XEN_BUFSIZE];
+    char token[XEN_BUFSIZE];
+    char *id;
+    char *tmp;
+    int i;
+
+    memset(type, 0, sizeof(type));
+    id = nc->name;
+    for (i = 1; i < sizeof(type) && *id; i++, id++) {
+        if (isdigit(*id)) {
+            break;
+        }
+        if (!isalpha(*id)) {
+            return -1;
+        }
+        type[i - 1] = *id;
+    }
+
+    for (tmp = id; *tmp; tmp++) {
+        if (!isdigit(*tmp)) {
+            return -1;
+        }
+    }
+
+    dompath = xs_get_domain_path(xenstore, xen_domid);
+    snprintf(token, sizeof(token), "ni:%p", nc);
+    snprintf(path, sizeof(path), "%s/device/%s/%s/disconnect",
+             dompath, type, id);
+    free(dompath);
+    xenstore_update_nic(path, nc);
+
+    if (!xs_watch(xenstore, path, token)) {
+        fprintf(stderr, "xen: watching nic path (%s) failed\n", path);
+        return -1;
+    }
+
+    return 0;
+}
+
+/* XenClient: xc-emulated-nic-link-state-propagation
+ * Unregister a Net Client in the Xenstore Watcher.
+ * Use it when a device is removed and is no longer use. */
+int xenstore_unregister_nic(NetClientState *nc)
+{
+    char *dompath = NULL;
+    char type[5];
+    char path[XEN_BUFSIZE];
+    char token[XEN_BUFSIZE];
+    char *id;
+    char *tmp;
+    int i;
+
+    memset(type, 0, sizeof(type));
+    id = nc->name;
+    for (i = 1; i < sizeof(type) && *id; i++, id++) {
+        if (isdigit(*id)) {
+            break;
+        }
+        if (!isalpha(*id)) {
+            return -1;
+        }
+        type[i - 1] = *id;
+    }
+
+    for (tmp = id; *tmp; tmp++) {
+        if (!isdigit(*tmp)) {
+            return -1;
+        }
+    }
+
+    dompath = xs_get_domain_path(xenstore, xen_domid);
+    snprintf(token, sizeof(token), "ni:%p", nc);
+    snprintf(path, sizeof(path), "%s/device/%s/%s/disconnect",
+             dompath, type, id);
+    free(dompath);
+
+    if (!xs_unwatch(xenstore, path, token)) {
+        fprintf(stderr, "xen: watching nic path (%s) failed\n", path);
+        return -1;
+    }
+
+    return 0;
+}
+
 static void xenstore_update_be(char *watch, char *type, int dom,
                                struct XenDevOps *ops)
 {
@@ -660,6 +780,11 @@ static void xenstore_update(void *unused)
     }
     if (sscanf(vec[XS_WATCH_TOKEN], "fe:%" PRIxPTR, &ptr) == 1) {
         xenstore_update_fe(vec[XS_WATCH_PATH], (void*)ptr);
+    }
+    /* XenClient:
+     * Update the NIC state if needed */
+    if (sscanf(vec[XS_WATCH_TOKEN], "ni:%" PRIxPTR, &ptr) == 1) {
+        xenstore_update_nic(vec[XS_WATCH_PATH], (void *)ptr);
     }
 
 cleanup:

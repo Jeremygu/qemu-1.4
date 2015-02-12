@@ -40,6 +40,10 @@
 #include "qapi/opts-visitor.h"
 #include "qapi/dealloc-visitor.h"
 
+/* XenClient: xc-emulated-nic-link-state-propagation
+ * needed for: xenstore_register_nic and xenstore_unregister_nic */
+#include "hw/xen.h"
+
 /* Net bridge is currently not supported for W32. */
 #if !defined(_WIN32)
 # define CONFIG_NET_BRIDGE
@@ -256,6 +260,13 @@ NICState *qemu_new_nic(NetClientInfo *info,
         nic->ncs[i].queue_index = i;
     }
 
+    /* XenClient: xc-emulated-nic-link-state-propagation
+     * Register the new Net Client to xenstore to ask Xenstore to propage
+     * the device status */
+    if (xen_enabled()) {
+        xenstore_register_nic(nc);
+    }
+
     return nic;
 }
 
@@ -364,6 +375,10 @@ void qemu_del_nic(NICState *nic)
 
     for (i = queues - 1; i >= 0; i--) {
         NetClientState *nc = qemu_get_subqueue(nic, i);
+        /* XenClient: xc-emulated-nic-link-state-propagation */
+        if (xen_enabled()) {
+            xenstore_unregister_nic(nc);
+        }
 
         qemu_cleanup_net_client(nc);
         qemu_free_net_client(nc);

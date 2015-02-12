@@ -2660,6 +2660,12 @@ static void rtl8139_IntrStatus_write(RTL8139State *s, uint32_t val)
     s->IntrStatus = 0;
     rtl8139_update_irq(s);
 
+    /* XenClient:
+     * clearing RxUnderrun also seems to clear LinkChange bit */
+    if (val & RxUnderrun) {
+        s->CSCR &= ~0x0800;
+    }
+
     s->IntrStatus = newStatus;
     /*
      * Computing if we miss an interrupt here is not that correct but

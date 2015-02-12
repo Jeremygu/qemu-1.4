@@ -47,6 +47,9 @@ void xen_hvm_inject_msi(uint64_t addr, uint32_t data);
 int xen_register_pcidev(PCIDevice *pci_dev);
 void xen_cmos_set_s3_resume(void *opaque, int irq, int level);
 
+int xenstore_register_nic(NetClientState *nc);
+int xenstore_unregister_nic(NetClientState *nc);
+
 qemu_irq *xen_interrupt_controller_init(void);
 
 int xen_init(void);
