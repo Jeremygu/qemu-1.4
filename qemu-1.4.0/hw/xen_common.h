@@ -152,34 +152,7 @@ static inline int xen_xc_hvm_inject_msi(XenXC xen_xc, domid_t dom,
 }
 #endif
 
-/* Xen before 4.3 */
-#if CONFIG_XEN_CTRL_INTERFACE_VERSION < 430
-static inline int xen_xc_hvm_register_pcidev(XenXC xen_xc, domid_t dom,
-        unsigned int serverid, uint16_t domain,
-        uint8_t bus, uint8_t device, uint8_t function)
-{
-    return 0;
-}
-
-static inline int xen_xc_hvm_map_io_range_to_ioreq_server(XenXC xen_xc,
-        domid_t dom, unsigned int serverid, int is_mmio,
-        uint64_t start, uint64_t end)
-{
-    return 1;
-}
-
-static inline int xen_xc_hvm_unmap_io_range_from_ioreq_server(XenXC xen_xc,
-        domid_t dom, unsigned int serverid, int is_mmio, uint64_t start)
-{
-    return 1;
-}
-
-static inline int xen_xc_hvm_register_ioreq_server(XenXC xen_xc, domid_t dom)
-{
-    return 0;
-}
-
-#else
+/* We suppose that Xen is able to handle multiple device model */
 static inline int xen_xc_hvm_register_pcidev(XenXC xen_xc, domid_t dom,
         unsigned int serverid, uint16_t domain,
         uint8_t bus, uint8_t device, uint8_t function)
@@ -207,8 +180,6 @@ static inline int xen_xc_hvm_register_ioreq_server(XenXC xen_xc, domid_t dom)
 {
     return xc_hvm_register_ioreq_server(xen_xc, dom);
 }
-
-#endif
 
 void destroy_hvm_domain(bool reboot);
 
