@@ -30,6 +30,9 @@
 #include "fw_cfg.h"
 #include "exec/address-spaces.h"
 
+/* XenClient: acpi */
+#include "xen.h" /* xen_enabled */
+
 //#define DEBUG
 
 #ifdef DEBUG
@@ -394,6 +397,10 @@ static int piix4_pm_initfn(PCIDevice *dev)
 
     /* APM */
     apm_init(dev, &s->apm, apm_ctrl_changed, s);
+
+    /* XenClient: acpi
+     * Enable ACPI, QEMU doesn't enable it by default */
+    apm_ctrl_changed(ACPI_ENABLE, s);
 
     if (s->kvm_enabled) {
         /* Mark SMM as already inited to prevent SMM from running.  KVM does not

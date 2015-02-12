@@ -1444,6 +1444,9 @@ void destroy_hvm_domain(bool reboot)
         } else {
             fprintf(stderr, "Issued domain %d %s\n", xen_domid,
                     reboot ? "reboot" : "poweroff");
+            if (reboot) {
+                xenstore_update_power(XENSTORE_PM_TYPE_REBOOT);
+            }
         }
         xc_interface_close(xc_handle);
     }

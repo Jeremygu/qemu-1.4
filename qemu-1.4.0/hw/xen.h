@@ -68,4 +68,15 @@ void xen_register_framebuffer(struct MemoryRegion *mr);
 #  define HVM_MAX_VCPUS 32
 #endif
 
+/* Xenclient:
+ * Power Management */
+enum xenstore_pm_type {
+  XENSTORE_PM_TYPE_REBOOT = 0,
+  XENSTORE_PM_TYPE_SLEEP = 3,
+  XENSTORE_PM_TYPE_HIBERNATE = 4,
+  XENSTORE_PM_TYPE_SHUTDOWN = 5
+};
+
+int xenstore_update_power(enum xenstore_pm_type const type);
+
 #endif /* QEMU_HW_XEN_H */

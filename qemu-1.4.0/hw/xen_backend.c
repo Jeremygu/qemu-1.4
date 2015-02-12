@@ -41,6 +41,9 @@
 
 #include <xen/grant_table.h>
 
+#include "ui/xen-input.h"
+#include "xen-dmbus.h"
+
 /* ------------------------------------------------------------- */
 
 /* public */
@@ -784,4 +787,24 @@ void xen_be_printf(struct XenDevice *xendev, int msg_level, const char *fmt, ...
         va_end(args);
     }
     qemu_log_flush();
+}
+
+/****************************************************
+ * XenClient: Power Management */
+
+/* XenClient:
+ * Power Management Notification */
+int xenstore_update_power(enum xenstore_pm_type const type)
+{
+    char *dompath = NULL;
+
+    dompath = xs_get_domain_path(xenstore, xen_domid);
+
+    if (NULL == dompath) {
+        return -1;
+    }
+
+    xen_input_send_shutdown(type);
+
+    return xenstore_write_int(dompath, "power-state", type);
 }
