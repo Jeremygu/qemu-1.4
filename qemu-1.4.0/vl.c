@@ -427,6 +427,19 @@ static QemuOptsList qemu_machine_opts = {
             .name = "usb",
             .type = QEMU_OPT_BOOL,
             .help = "Set on/off to enable/disable usb",
+        }, {
+            .name = "xen_dmid",
+            .type = QEMU_OPT_NUMBER,
+            .help = "Xen device model id",
+        }, {
+            .name = "xen_default_dev",
+            .type = QEMU_OPT_BOOL,
+            .help = "emulate Xen default devices (i440FX, PIIX3-xen,"
+                    " xen-platform, PIIX4_PM, i8042, elcr, rtc)"
+        }, {
+            .name = "emulate_ide",
+            .type = QEMU_OPT_BOOL,
+            .help = "emulate IDE (default on)"
         },
         { /* End of list */ }
     },

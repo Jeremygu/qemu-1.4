@@ -18,6 +18,14 @@ enum xen_mode {
     XEN_ATTACH        // attach to xen domain created by xend
 };
 
+
+/* Xen Platform unplug event */
+#define UNPLUG_ALL_IDE_DISKS 1
+#define UNPLUG_ALL_NICS 2
+#define UNPLUG_AUX_IDE_DISKS 3
+
+#define XEN_PLATFORM_IOPORT 0x10
+
 extern uint32_t xen_domid;
 extern enum xen_mode xen_mode;
 
@@ -36,6 +44,7 @@ int xen_pci_slot_get_pirq(PCIDevice *pci_dev, int irq_num);
 void xen_piix3_set_irq(void *opaque, int irq_num, int level);
 void xen_piix_pci_write_config_client(uint32_t address, uint32_t val, int len);
 void xen_hvm_inject_msi(uint64_t addr, uint32_t data);
+int xen_register_pcidev(PCIDevice *pci_dev);
 void xen_cmos_set_s3_resume(void *opaque, int irq, int level);
 
 qemu_irq *xen_interrupt_controller_init(void);

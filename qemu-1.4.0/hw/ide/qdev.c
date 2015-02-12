@@ -115,7 +115,13 @@ IDEDevice *ide_create_drive(IDEBus *bus, int unit, DriveInfo *drive)
 int ide_get_geometry(BusState *bus, int unit,
                      int16_t *cyls, int8_t *heads, int8_t *secs)
 {
-    IDEState *s = &DO_UPCAST(IDEBus, qbus, bus)->ifs[unit];
+    IDEState *s = NULL;
+
+    if (!bus) {
+        return -1;
+    }
+
+    s = &DO_UPCAST(IDEBus, qbus, bus)->ifs[unit];
 
     if (s->drive_kind != IDE_HD || !s->bs) {
         return -1;

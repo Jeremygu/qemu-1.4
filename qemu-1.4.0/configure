@@ -1468,9 +1468,31 @@ EOF
     fi
     xen=no
 
-  # Xen unstable
+  # Xen next release
   elif
-      cat > $TMPC <<EOF &&
+      cat > $TMPC <<EOF
+#include <xenctrl.h>
+#include <xenstore.h>
+#include <stdint.h>
+#include <xen/hvm/hvm_info_table.h>
+#if !defined(HVM_MAX_VCPUS)
+# error HVM_MAX_VCPUS not defined
+#endif
+int main(void) {
+  xc_interface *xc;
+  xs_daemon_open();
+  xc = xc_interface_open(0, 0, 0);
+  xc_hvm_register_ioreq_server(xc, 0);
+  return 0;
+}
+EOF
+      compile_prog "" "$xen_libs"
+    then
+    xen_ctrl_version=430
+    xen=yes
+ # Xen unstable
+ elif
+     cat > $TMPC <<EOF
 #include <xenctrl.h>
 #include <xenstore.h>
 #include <stdint.h>

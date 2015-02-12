@@ -44,6 +44,7 @@
 #include "exec/memory.h"
 #include "exec/address-spaces.h"
 #include "cpu.h"
+#include "qemu/config-file.h"
 #ifdef CONFIG_XEN
 #  include <xen/hvm/hvm_info_table.h>
 #endif
@@ -85,6 +86,8 @@ static void pc_init1(MemoryRegion *system_memory,
     MemoryRegion *pci_memory;
     MemoryRegion *rom_memory;
     void *fw_cfg = NULL;
+    bool emulate_ide = true;
+    QemuOpts *machine_opts;
 
     pc_cpus_init(cpu_model);
     pc_acpi_init("acpi-dsdt.aml");
@@ -173,23 +176,35 @@ static void pc_init1(MemoryRegion *system_memory,
 
     pc_nic_init(isa_bus, pci_bus);
 
-    ide_drive_get(hd, MAX_IDE_BUS);
-    if (pci_enabled) {
-        PCIDevice *dev;
-        if (xen_enabled()) {
-            dev = pci_piix3_xen_ide_init(pci_bus, hd, piix3_devfn + 1);
+    machine_opts = qemu_opts_find(qemu_find_opts("machine"), 0);
+    if (machine_opts) {
+        emulate_ide = qemu_opt_get_bool(machine_opts, "emulate_ide", true);
+    }
+
+    if (emulate_ide) {
+        ide_drive_get(hd, MAX_IDE_BUS);
+        if (pci_enabled) {
+            PCIDevice *dev;
+            if (xen_enabled()) {
+                dev = pci_piix3_xen_ide_init(pci_bus, hd, piix3_devfn + 1);
+            } else {
+                dev = pci_piix3_ide_init(pci_bus, hd, piix3_devfn + 1);
+            }
+            idebus[0] = qdev_get_child_bus(&dev->qdev, "ide.0");
+            idebus[1] = qdev_get_child_bus(&dev->qdev, "ide.1");
         } else {
-            dev = pci_piix3_ide_init(pci_bus, hd, piix3_devfn + 1);
+            for (i = 0; i < MAX_IDE_BUS; i++) {
+                ISADevice *dev;
+                dev = isa_ide_init(isa_bus, ide_iobase[i], ide_iobase2[i],
+                                   ide_irq[i],
+                                   hd[MAX_IDE_DEVS * i],
+                                   hd[MAX_IDE_DEVS * i + 1]);
+                idebus[i] = qdev_get_child_bus(&dev->qdev, "ide.0");
+            }
         }
-        idebus[0] = qdev_get_child_bus(&dev->qdev, "ide.0");
-        idebus[1] = qdev_get_child_bus(&dev->qdev, "ide.1");
     } else {
-        for(i = 0; i < MAX_IDE_BUS; i++) {
-            ISADevice *dev;
-            dev = isa_ide_init(isa_bus, ide_iobase[i], ide_iobase2[i],
-                               ide_irq[i],
-                               hd[MAX_IDE_DEVS * i], hd[MAX_IDE_DEVS * i + 1]);
-            idebus[i] = qdev_get_child_bus(&dev->qdev, "ide.0");
+        for (i = 0; i < MAX_IDE_BUS; i++) {
+            idebus[i] = NULL;
         }
     }
 

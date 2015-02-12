@@ -26,7 +26,7 @@
 #include <xen/hvm/params.h>
 #include <xen/hvm/e820.h>
 
-//#define DEBUG_XEN
+#define DEBUG_XEN
 
 #ifdef DEBUG_XEN
 #define DPRINTF(fmt, ...) \
@@ -39,6 +39,10 @@
 static MemoryRegion ram_memory, ram_640k, ram_lo, ram_hi;
 static MemoryRegion *framebuffer;
 static bool xen_in_migration;
+static unsigned int serverid;
+static uint32_t xen_dmid = ~0;
+
+static bool xen_emulate_default_dev = true;
 
 /* Compatibility with older version */
 #if __XEN_LATEST_INTERFACE_VERSION__ < 0x0003020a
@@ -64,6 +68,67 @@ static inline ioreq_t *xen_vcpu_ioreq(shared_iopage_t *shared_page, int vcpu)
 #endif
 #ifndef HVM_PARAM_BUFIOREQ_EVTCHN
 #define HVM_PARAM_BUFIOREQ_EVTCHN 26
+#endif
+
+#if __XEN_LATEST_INTERFACE_VERSION__ < 0x00040300
+static inline unsigned long xen_buffered_iopage(void)
+{
+    unsigned long pfn;
+
+    xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_BUFIOREQ_PFN, &pfn);
+
+    return pfn;
+}
+
+static inline unsigned long xen_iopage(void)
+{
+    unsigned long pfn;
+
+    xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_IOREQ_PFN, &pfn);
+
+    return pfn;
+}
+
+static inline evtchn_port_or_error_t xen_buffered_channel(void)
+{
+    unsigned long evtchn;
+    int rc;
+
+    rc = xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_BUFIOREQ_EVTCHN,
+                          &evtchn);
+
+    if (rc < 0) {
+        return rc;
+    } else {
+        return evtchn;
+    }
+}
+#else
+static inline unsigned long xen_buffered_iopage(void)
+{
+    unsigned long pfn;
+
+    xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_IO_PFN_FIRST, &pfn);
+    pfn += (serverid - 1) * 2 + 2;
+
+    return pfn;
+}
+
+static inline unsigned long xen_iopage(void)
+{
+    unsigned long pfn;
+
+    xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_IO_PFN_FIRST, &pfn);
+    pfn += (serverid - 1) * 2 + 1;
+
+    return pfn;
+}
+
+static inline evtchn_port_or_error_t xen_buffered_channel(void)
+{
+    return xc_hvm_get_ioreq_server_buf_channel(xen_xc, xen_domid, serverid);
+}
+
 #endif
 
 #define BUFFER_IO_MAX_DELAY  100
@@ -92,6 +157,7 @@ typedef struct XenIOState {
 
     struct xs_handle *xenstore;
     MemoryListener memory_listener;
+    MemoryListener io_listener;
     QLIST_HEAD(, XenPhysmap) physmap;
     hwaddr free_phys_offset;
     const XenPhysmap *log_for_dirtybit;
@@ -111,6 +177,26 @@ void xen_piix3_set_irq(void *opaque, int irq_num, int level)
 {
     xc_hvm_set_pci_intx_level(xen_xc, xen_domid, 0, 0, irq_num >> 2,
                               irq_num & 3, level);
+}
+
+int xen_register_pcidev(PCIDevice *pci_dev)
+{
+    /* List of default devices */
+    if (!xen_emulate_default_dev) {
+        if (!strcmp("i440FX", pci_dev->name)
+            || !strcmp("PIIX3-xen", pci_dev->name)
+            || !strcmp("xen-platform", pci_dev->name)
+            || !strcmp("PIIX4_PM", pci_dev->name)) {
+            return 0;
+        }
+    }
+
+    DPRINTF("register pci %x:%x.%x %s\n", 0, (pci_dev->devfn >> 3) & 0x1f,
+            pci_dev->devfn & 0x7, pci_dev->name);
+
+    return xen_xc_hvm_register_pcidev(xen_xc, xen_domid, serverid,
+                                      0, 0, pci_dev->devfn >> 3,
+                                      pci_dev->devfn & 0x7);
 }
 
 void xen_piix_pci_write_config_client(uint32_t address, uint32_t val, int len)
@@ -133,6 +219,82 @@ void xen_piix_pci_write_config_client(uint32_t address, uint32_t val, int len)
 void xen_hvm_inject_msi(uint64_t addr, uint32_t data)
 {
     xen_xc_hvm_inject_msi(xen_xc, xen_domid, addr, data);
+}
+
+static void xen_map_iorange(MemoryRegionSection *section, int is_mmio)
+{
+    hwaddr addr = section->offset_within_address_space;
+    uint64_t size = section->size;
+    const char *name = section->mr->name;
+
+    /* Don't register ram region */
+    if (memory_region_is_ram(section->mr)) {
+        fprintf(stderr, "Skip %s\n", section->mr->name);
+        if (!strcmp("xen.ram", section->mr->name)) {
+            return;
+        }
+    }
+
+    /* List of default devices */
+    if ((!strcmp("xen-apic-msi", name)
+         || !strcmp("xen-fixed", name) /* Xen platform */
+         || !strcmp("port92", name) /* A20 line */
+         || !strcmp("elcr", name) /* Edge Level Control Register for i8259 */
+         || !strcmp("rtc", name) /* A part of RTC is emulated in Xen and QEMU */
+         /* Keyboard, mouse */
+         || !strcmp("i8042-data", name)
+         || !strcmp("i8042-cmd", name)
+         /* PIIX4 default ioranges */
+         || !strcmp("apm-io", name)
+         || !strcmp("piix4-acpi", name)
+         || !strcmp("piix4-smb", name)
+         || !strcmp("piix4-acpi-hot", name)
+         || !strcmp("piix4-pci-hot", name)
+         || !strcmp("piix4-pciej-hot", name)
+         || !strcmp("piix4-pcirmv-hot", name)) && !xen_emulate_default_dev) {
+        return;
+    }
+
+    /* List of range that we don't need to register because they are unused */
+    if (!strcmp("fdc", name) /* Floppy is not emulated */
+        || !strcmp("ioapic", name) /* Emulated by Xen */
+        /* Misc iorange */
+        || !strcmp("kvmvapic", name)
+        || !strcmp("ioport80", name)
+        || !strcmp("ioportF0", name)
+        /* Config address and date registers for PCI are emulated by Xen */
+        || !strcmp("pci-conf-idx", name)
+        || !strcmp("pci-conf-data", name)
+        || !strcmp("hpet", name) /* emulated by Xen */
+        /* DMA is unused */
+        || !strcmp("dma-chan", name)
+        || !strcmp("dma-page", name)
+        || !strcmp("dma-cont", name)
+        ) {
+        return;
+    }
+
+    DPRINTF("map %s %s 0x"TARGET_FMT_plx" - 0x"TARGET_FMT_plx"\n",
+            (is_mmio) ? "mmio" : "io", name, addr, addr + size - 1);
+
+    xen_xc_hvm_map_io_range_to_ioreq_server(xen_xc, xen_domid, serverid,
+                                            is_mmio, addr, addr + size - 1);
+}
+
+static void xen_unmap_iorange(MemoryRegionSection *section, int is_mmio)
+{
+    hwaddr addr = section->offset_within_address_space;
+
+    if (memory_region_is_ram(section->mr)) {
+        return;
+    }
+
+    DPRINTF("unmap %s %s 0x"TARGET_FMT_plx" - 0x"TARGET_FMT_plx"\n",
+            (is_mmio) ? "mmio" : "io", section->mr->name,
+            addr, addr + section->size - 1);
+
+    xen_xc_hvm_unmap_io_range_from_ioreq_server(xen_xc, xen_domid, serverid,
+                                                is_mmio, addr);
 }
 
 static void xen_suspend_notifier(Notifier *notifier, void *data)
@@ -223,6 +385,8 @@ void xen_ram_alloc(ram_addr_t ram_addr, ram_addr_t size, MemoryRegion *mr)
     for (i = 0; i < nr_pfn; i++) {
         pfn_list[i] = (ram_addr >> TARGET_PAGE_BITS) + i;
     }
+
+    DPRINTF("ram alloc %s\n", mr->name);
 
     if (xc_domain_populate_physmap_exact(xen_xc, xen_domid, nr_pfn, 0, 0, pfn_list)) {
         hw_error("xen: failed to populate ram at " RAM_ADDR_FMT, ram_addr);
@@ -325,6 +489,14 @@ go_physmap:
                                    XEN_DOMCTL_MEM_CACHEATTR_WB);
 
     snprintf(path, sizeof(path),
+             "/local/domain/0/device-model/%d/physmap/%"PRIx64"/device_model",
+             xen_domid, (uint64_t)phys_offset);
+    snprintf(value, sizeof(value), "%u", xen_dmid);
+    if (!xs_write(state->xenstore, 0, path, value, strlen(value))) {
+        return -1;
+    }
+
+    snprintf(path, sizeof(path),
             "/local/domain/0/device-model/%d/physmap/%"PRIx64"/start_addr",
             xen_domid, (uint64_t)phys_offset);
     snprintf(value, sizeof(value), "%"PRIx64, (uint64_t)start_addr);
@@ -367,7 +539,7 @@ static int xen_remove_from_physmap(XenIOState *state,
     phys_offset = physmap->phys_offset;
     size = physmap->size;
 
-    DPRINTF("unmapping vram to %"HWADDR_PRIx" - %"HWADDR_PRIx", from ",
+    DPRINTF("unmapping vram to %"HWADDR_PRIx" - %"HWADDR_PRIx", from "
             "%"HWADDR_PRIx"\n", phys_offset, phys_offset + size, start_addr);
 
     size >>= TARGET_PAGE_BITS;
@@ -460,12 +632,14 @@ static void xen_region_add(MemoryListener *listener,
                            MemoryRegionSection *section)
 {
     xen_set_memory(listener, section, true);
+    xen_map_iorange(section, 1);
 }
 
 static void xen_region_del(MemoryListener *listener,
                            MemoryRegionSection *section)
 {
     xen_set_memory(listener, section, false);
+    xen_unmap_iorange(section, 1);
 }
 
 static void xen_sync_dirty_bitmap(XenIOState *state,
@@ -573,6 +747,24 @@ void qmp_xen_set_global_dirty_log(bool enable, Error **errp)
         memory_global_dirty_log_stop();
     }
 }
+
+static void xen_io_region_add(MemoryListener *listener,
+                              MemoryRegionSection *section)
+{
+    xen_map_iorange(section, 0);
+}
+
+static void xen_io_region_del(MemoryListener *listener,
+                              MemoryRegionSection *section)
+{
+    xen_unmap_iorange(section, 0);
+}
+
+static MemoryListener xen_io_listener = {
+    .region_add = xen_io_region_add,
+    .region_del = xen_io_region_del,
+    .priority = 10,
+};
 
 /* VCPU Operations, MMIO, IO ring ... */
 
@@ -778,6 +970,43 @@ static void cpu_ioreq_move(ioreq_t *req)
     }
 }
 
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040300
+static void cpu_ioreq_config_space(ioreq_t *req)
+{
+    uint64_t cf8 = req->addr;
+    uint32_t tmp = req->size;
+    uint16_t size = req->size & 0xff;
+    uint16_t off = req->size >> 16;
+
+    if ((size + off + 0xcfc) > 0xd00) {
+        hw_error("Invalid ioreq config space size = %u off = %u\n",
+                 size, off);
+    }
+
+    req->addr = 0xcfc + off;
+    req->size = size;
+
+    do_outp(0xcf8, 4, cf8);
+    cpu_ioreq_pio(req);
+    req->addr = cf8;
+    req->size = tmp;
+}
+
+static void cpu_ioreq_event(ioreq_t *req)
+{
+    if (req->data & IOREQ_EVENT_UNPLUG_ALL_IDE_DISKS) {
+        do_outp(XEN_PLATFORM_IOPORT, 2, UNPLUG_ALL_IDE_DISKS);
+    }
+    if (req->data & IOREQ_EVENT_UNPLUG_ALL_NICS) {
+        do_outp(XEN_PLATFORM_IOPORT, 2, UNPLUG_ALL_NICS);
+    }
+    if (req->data & IOREQ_EVENT_UNPLUG_AUX_IDE_DISKS) {
+        do_outp(XEN_PLATFORM_IOPORT, 2, UNPLUG_AUX_IDE_DISKS);
+    }
+}
+
+#endif
+
 static void handle_ioreq(ioreq_t *req)
 {
     if (!req->data_is_ptr && (req->dir == IOREQ_WRITE) &&
@@ -797,6 +1026,14 @@ static void handle_ioreq(ioreq_t *req)
         case IOREQ_TYPE_INVALIDATE:
             xen_invalidate_map_cache();
             break;
+#if __XEN_LATEST_INTERFACE_VERSION__ >= 0x00040300
+        case IOREQ_TYPE_PCI_CONFIG:
+            cpu_ioreq_config_space(req);
+            break;
+        case IOREQ_TYPE_EVENT:
+            cpu_ioreq_event(req);
+            break;
+#endif
         default:
             hw_error("Invalid ioreq type 0x%x\n", req->type);
     }
@@ -966,7 +1203,14 @@ static void xenstore_record_dm_state(struct xs_handle *xs, const char *state)
         exit(1);
     }
 
-    snprintf(path, sizeof (path), "/local/domain/0/device-model/%u/state", xen_domid);
+    if (xen_dmid == ~0) {
+        snprintf(path, sizeof(path), "/local/domain/0/device-model/%u/state",
+                 xen_domid);
+    } else {
+        snprintf(path, sizeof(path), "/local/domain/0/dms/%u/%u/state",
+                 xen_domid, xen_dmid);
+    }
+
     if (!xs_write(xs, XBT_NULL, path, state, strlen(state))) {
         fprintf(stderr, "error recording dm state\n");
         exit(1);
@@ -1036,6 +1280,7 @@ static void xen_read_physmap(XenIOState *state)
     unsigned int len, num, i;
     char path[80], *value = NULL;
     char **entries = NULL;
+    uint32_t dmid = ~0;
 
     snprintf(path, sizeof(path),
             "/local/domain/0/device-model/%d/physmap", xen_domid);
@@ -1044,6 +1289,17 @@ static void xen_read_physmap(XenIOState *state)
         return;
 
     for (i = 0; i < num; i++) {
+        snprintf(path, sizeof(path),
+                 "/local/domain/0/device-model/%d/physmap/%s/device_model",
+                 xen_domid, entries[i]);
+        value = xs_read(state->xenstore, 0, path, &len);
+        if (value) {
+            dmid = strtoul(value, NULL, 10);
+            free(value);
+            if (dmid != xen_dmid) {
+                continue;
+            }
+        }
         physmap = g_malloc(sizeof (XenPhysmap));
         physmap->phys_offset = strtoull(entries[i], NULL, 16);
         snprintf(path, sizeof(path),
@@ -1084,6 +1340,16 @@ int xen_hvm_init(void)
     unsigned long ioreq_pfn;
     unsigned long bufioreq_evtchn;
     XenIOState *state;
+    QemuOpts *machine_opts;
+    bool emulate_ide = true;
+
+    machine_opts = qemu_opts_find(qemu_find_opts("machine"), 0);
+    if (machine_opts) {
+        xen_dmid = qemu_opt_get_number(machine_opts, "xen_dmid", ~0);
+        xen_emulate_default_dev = qemu_opt_get_bool(machine_opts,
+                                                    "xen_default_dev", true);
+        emulate_ide = qemu_opt_get_bool(machine_opts, "emulate_ide", true);
+    }
 
     state = g_malloc0(sizeof (XenIOState));
 
@@ -1105,7 +1371,15 @@ int xen_hvm_init(void)
     state->suspend.notify = xen_suspend_notifier;
     qemu_register_suspend_notifier(&state->suspend);
 
-    xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_IOREQ_PFN, &ioreq_pfn);
+    rc = xen_xc_hvm_register_ioreq_server(xen_xc, xen_domid);
+
+    if (rc < 0) {
+        hw_error("registered server returned error %d", rc);
+    }
+
+    serverid = rc;
+
+    ioreq_pfn = xen_iopage();
     DPRINTF("shared page at pfn %lx\n", ioreq_pfn);
     state->shared_page = xc_map_foreign_range(xen_xc, xen_domid, XC_PAGE_SIZE,
                                               PROT_READ|PROT_WRITE, ioreq_pfn);
@@ -1114,7 +1388,7 @@ int xen_hvm_init(void)
                  errno, xen_xc);
     }
 
-    xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_BUFIOREQ_PFN, &ioreq_pfn);
+    ioreq_pfn = xen_buffered_iopage();
     DPRINTF("buffered io page at pfn %lx\n", ioreq_pfn);
     state->buffered_io_page = xc_map_foreign_range(xen_xc, xen_domid, XC_PAGE_SIZE,
                                                    PROT_READ|PROT_WRITE, ioreq_pfn);
@@ -1135,12 +1409,14 @@ int xen_hvm_init(void)
         state->ioreq_local_port[i] = rc;
     }
 
-    rc = xc_get_hvm_param(xen_xc, xen_domid, HVM_PARAM_BUFIOREQ_EVTCHN,
-            &bufioreq_evtchn);
+    rc = xen_buffered_channel();
     if (rc < 0) {
         fprintf(stderr, "failed to get HVM_PARAM_BUFIOREQ_EVTCHN\n");
         return -1;
     }
+
+    bufioreq_evtchn = rc;
+
     rc = xc_evtchn_bind_interdomain(state->xce_handle, xen_domid,
             (uint32_t)bufioreq_evtchn);
     if (rc == -1) {
@@ -1160,14 +1436,22 @@ int xen_hvm_init(void)
     memory_listener_register(&state->memory_listener, &address_space_memory);
     state->log_for_dirtybit = NULL;
 
+    state->io_listener = xen_io_listener;
+    memory_listener_register(&state->io_listener, &address_space_io);
+
     /* Initialize backend core & drivers */
     if (xen_be_init() != 0) {
         fprintf(stderr, "%s: xen backend core setup failed\n", __FUNCTION__);
         exit(1);
     }
-    xen_be_register("console", &xen_console_ops);
-    xen_be_register("vkbd", &xen_kbdmouse_ops);
-    xen_be_register("qdisk", &xen_blkdev_ops);
+
+    if (xen_emulate_default_dev) {
+        xen_be_register("console", &xen_console_ops);
+        xen_be_register("vkbd", &xen_kbdmouse_ops);
+    }
+    if (emulate_ide) {
+        xen_be_register("qdisk", &xen_blkdev_ops);
+    }
     xen_read_physmap(state);
 
     return 0;

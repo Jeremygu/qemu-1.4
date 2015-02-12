@@ -26,6 +26,11 @@ void xen_piix3_set_irq(void *opaque, int irq_num, int level)
 {
 }
 
+int xen_register_pcidev(PCIDevice *pci_dev)
+{
+    return 1;
+}
+
 void xen_piix_pci_write_config_client(uint32_t address, uint32_t val, int len)
 {
 }

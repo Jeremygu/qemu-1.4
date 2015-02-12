@@ -62,8 +62,6 @@ typedef struct PCIXenPlatformState {
     int log_buffer_off;
 } PCIXenPlatformState;
 
-#define XEN_PLATFORM_IOPORT 0x10
-
 /* Send bytes to syslog */
 static void log_writeb(PCIXenPlatformState *s, char val)
 {
@@ -76,11 +74,6 @@ static void log_writeb(PCIXenPlatformState *s, char val)
         s->log_buffer[s->log_buffer_off++] = val;
     }
 }
-
-/* Xen Platform, Fixed IOPort */
-#define UNPLUG_ALL_IDE_DISKS 1
-#define UNPLUG_ALL_NICS 2
-#define UNPLUG_AUX_IDE_DISKS 4
 
 static void unplug_nic(PCIBus *b, PCIDevice *d, void *o)
 {
