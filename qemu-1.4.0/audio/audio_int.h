@@ -200,6 +200,11 @@ struct AudioState {
     int nb_hw_voices_out;
     int nb_hw_voices_in;
     int vm_running;
+    /* OXT: Add a thread to run the audio driver instead of using the QEMU Timer.
+     * Performance and audio quality seems better when QEMU is running in a stubdomain. */
+#ifdef CONFIG_XEN_ALSA
+    pthread_t audio_thread;
+#endif
 };
 
 extern struct audio_driver no_audio_driver;
@@ -208,6 +213,9 @@ extern struct audio_driver sdl_audio_driver;
 extern struct audio_driver wav_audio_driver;
 extern struct audio_driver fmod_audio_driver;
 extern struct audio_driver alsa_audio_driver;
+
+extern struct audio_driver xen_alsa_audio_driver;
+
 extern struct audio_driver coreaudio_audio_driver;
 extern struct audio_driver dsound_audio_driver;
 extern struct audio_driver esd_audio_driver;
@@ -284,5 +292,8 @@ static void GCC_ATTR ldebug (const char *fmt, ...)
 #else
 #define AUDIO_FUNC __FILE__ ":" AUDIO_STRINGIFY (__LINE__)
 #endif
+
+/* OXT: WORKAROUND to call this function in xen_alsastub.c */
+int xc_audio_pcm_hw_get_live_out(HWVoiceOut *hw);
 
 #endif /* audio_int.h */

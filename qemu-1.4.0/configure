@@ -524,7 +524,7 @@ Haiku)
 ;;
 *)
   audio_drv_list="oss"
-  audio_possible_drivers="oss alsa sdl esd pa"
+  audio_possible_drivers="oss alsa sdl esd pa xen_alsa"
   linux="yes"
   linux_user="yes"
   usb="linux"

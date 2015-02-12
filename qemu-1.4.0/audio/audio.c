@@ -30,6 +30,11 @@
 #define AUDIO_CAP "audio"
 #include "audio_int.h"
 
+#ifdef CONFIG_XEN_ALSA
+#include <pthread.h>
+pthread_mutex_t audio_mutex = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
 /* #define DEBUG_PLIVE */
 /* #define DEBUG_LIVE */
 /* #define DEBUG_OUT */
@@ -1104,6 +1109,27 @@ static void audio_pcm_print_info (const char *cap, struct audio_pcm_info *info)
 #undef DAC
 #include "audio_template.h"
 
+#ifdef CONFIG_XEN_ALSA
+static void *audio_worker_thread(void *arg)
+{
+    struct timespec ts;
+
+    ts.tv_sec = 0;
+    ts.tv_nsec = 2000*1000;
+
+    while (1) {
+        nanosleep(&ts, NULL);
+
+        pthread_mutex_lock(&audio_mutex);
+
+        audio_run("worker thread");
+
+        pthread_mutex_unlock(&audio_mutex);
+    }
+
+    return NULL;
+}
+#else
 /*
  * Timer
  */
@@ -1136,6 +1162,7 @@ static void audio_timer (void *opaque)
     audio_run ("timer");
     audio_reset_timer (opaque);
 }
+#endif
 
 /*
  * Public API
@@ -1201,7 +1228,10 @@ void AUD_set_active_out (SWVoiceOut *sw, int on)
                 hw->enabled = 1;
                 if (s->vm_running) {
                     hw->pcm_ops->ctl_out (hw, VOICE_ENABLE, conf.try_poll_out);
+/* OXT: Remove QEMU Timer calls to use pthread instead. */
+#ifndef CONFIG_XEN_ALSA
                     audio_reset_timer (s);
+#endif
                 }
             }
         }
@@ -1246,7 +1276,10 @@ void AUD_set_active_in (SWVoiceIn *sw, int on)
                 hw->enabled = 1;
                 if (s->vm_running) {
                     hw->pcm_ops->ctl_in (hw, VOICE_ENABLE, conf.try_poll_in);
+/* OXT: Remove QEMU Timer calls to use pthread instead. */
+#ifndef CONFIG_XEN_ALSA
                     audio_reset_timer (s);
+#endif
                 }
             }
             sw->total_hw_samples_acquired = hw->total_samples_captured;
@@ -1768,7 +1801,10 @@ static void audio_vm_change_state_handler (void *opaque, int running,
     while ((hwi = audio_pcm_hw_find_any_enabled_in (hwi))) {
         hwi->pcm_ops->ctl_in (hwi, op, conf.try_poll_in);
     }
+/* OXT: Remove QEMU Timer calls to use pthread instead. */
+#ifndef CONFIG_XEN_ALSA
     audio_reset_timer (s);
+#endif
 }
 
 static void audio_atexit (void)
@@ -1834,10 +1870,13 @@ static void audio_init (void)
     QLIST_INIT (&s->cap_head);
     atexit (audio_atexit);
 
+/* OXT: Remove QEMU Timer calls to use pthread instead. */
+#ifndef CONFIG_XEN_ALSA
     s->ts = qemu_new_timer_ns (vm_clock, audio_timer, s);
     if (!s->ts) {
         hw_error("Could not create audio timer\n");
     }
+#endif
 
     audio_process_options ("AUDIO", audio_options);
 
@@ -1916,6 +1955,11 @@ static void audio_init (void)
 
     QLIST_INIT (&s->card_head);
     vmstate_register (NULL, 0, &vmstate_audio, s);
+
+/* OXT: Remove QEMU Timer calls to use pthread instead. */
+#ifdef CONFIG_XEN_ALSA
+    pthread_create(&s->audio_thread, NULL, audio_worker_thread, (void *)s);
+#endif
 }
 
 void AUD_register_card (const char *name, QEMUSoundCard *card)
@@ -2089,4 +2133,19 @@ void AUD_set_volume_in (SWVoiceIn *sw, int mute, uint8_t lvol, uint8_t rvol)
             hw->pcm_ops->ctl_in (hw, VOICE_VOLUME, sw);
         }
     }
+}
+
+
+int xc_audio_pcm_hw_get_live_out(HWVoiceOut *hw)
+{
+    int nb_live;
+    int live;
+
+    live = audio_pcm_hw_get_live_out(hw, &nb_live);
+    if (audio_bug(AUDIO_FUNC, live < 0 || live > hw->samples)) {
+        dolog("live=%d hw->samples=%d\n", live, hw->samples);
+        return 0;
+    }
+
+    return live;
 }
