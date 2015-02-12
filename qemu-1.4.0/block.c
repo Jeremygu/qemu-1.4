@@ -4566,3 +4566,31 @@ out:
         bdrv_delete(bs);
     }
 }
+
+
+/* XenClient: ATAPI Pass Through
+ * Allow the device emulation module to send comand to the driver
+ * in order to notify it from change */
+int bdrv_send_request_to_driver(BlockDriverState *bs, uint32_t const cmd)
+{
+    BlockDriver *drv = bs->drv;
+
+    if (drv && drv->bdrv_receive_request_from_device) {
+        return drv->bdrv_receive_request_from_device(bs, cmd);
+    }
+    return -ENOTSUP;
+}
+
+int bdrv_receive_data_from_driver(BlockDriverState *bs,
+                                  uint32_t const cmd, uint32_t * answer)
+{
+    BlockDriver *drv = bs->drv;
+
+    if (drv && drv->bdrv_send_data_to_device) {
+        if (!answer) {
+            return -ENOTSUP;
+        }
+        return drv->bdrv_send_data_to_device(bs, cmd, answer);
+    }
+    return -ENOTSUP;
+}

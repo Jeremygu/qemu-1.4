@@ -316,7 +316,9 @@ typedef struct IDEDMAOps IDEDMAOps;
 #define SMART_DISABLE         0xd9
 #define SMART_STATUS          0xda
 
-typedef enum { IDE_HD, IDE_CD, IDE_CFATA } IDEDriveKind;
+/* XenClient: ATAPI PassThrough
+ * Add IDE_CD_PT */
+typedef enum { IDE_HD, IDE_CD, IDE_CFATA, IDE_CD_PT } IDEDriveKind;
 
 typedef void EndTransferFunc(IDEState *);
 
@@ -338,6 +340,10 @@ enum ide_dma_cmd {
 
 #define ide_cmd_is_read(s) \
 	((s)->dma_cmd == IDE_DMA_READ)
+
+
+/* XenClient: ATAPI Pass Through */
+# include "hw/ide/atapi_pt.h"
 
 /* NOTE: IDEState represents in fact one drive */
 struct IDEState {
@@ -382,6 +388,10 @@ struct IDEState {
     bool tray_open;
     bool tray_locked;
     uint8_t cdrom_changed;
+    /* XenClient: ATAPI Pass Through */
+    uint8_t atapi_pt;
+    ATAPIPassThroughState *atapipts;
+    /* XenClient ------------------- */
     int packet_transfer_size;
     int elementary_transfer_size;
     int io_buffer_index;
@@ -501,6 +511,14 @@ struct IDEDevice {
 #define BM_CMD_START     0x01
 #define BM_CMD_READ      0x08
 
+/* XenClient: ATAPI
+ * Use ATAPI PassThrough if CONFIG_XEN is defined.
+ * TODO: This is not a XenSpecific source code create an other option to
+ * handle it. */
+# if defined (CONFIG_XEN)
+#  include <hw/ide/atapi_pt.h>
+# endif
+
 static inline IDEState *idebus_active_if(IDEBus *bus)
 {
     return bus->ifs + bus->unit;
@@ -536,6 +554,9 @@ void ide_dma_error(IDEState *s);
 void ide_atapi_cmd_ok(IDEState *s);
 void ide_atapi_cmd_error(IDEState *s, int sense_key, int asc);
 void ide_atapi_io_error(IDEState *s, int ret);
+/* XenClient: ATAPI Pass Through
+ * export functions also used in atapi.c and atapi_pt.c */
+void ide_atapi_cmd_reply(IDEState *s, int size, int max_size);
 
 void ide_ioport_write(void *opaque, uint32_t addr, uint32_t val);
 uint32_t ide_ioport_read(void *opaque, uint32_t addr1);

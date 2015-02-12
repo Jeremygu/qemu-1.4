@@ -105,10 +105,15 @@ IDEDevice *ide_create_drive(IDEBus *bus, int unit, DriveInfo *drive)
 {
     DeviceState *dev;
 
-    dev = qdev_create(&bus->qbus, drive->media_cd ? "ide-cd" : "ide-hd");
+    if (drive->atapi_pt) {
+        dev = qdev_create(&bus->qbus, "ide-cd-pt");
+    } else {
+        dev = qdev_create(&bus->qbus, drive->media_cd ? "ide-cd" : "ide-hd");
+    }
     qdev_prop_set_uint32(dev, "unit", unit);
     qdev_prop_set_drive_nofail(dev, "drive", drive->bdrv);
     qdev_init_nofail(dev);
+
     return DO_UPCAST(IDEDevice, qdev, dev);
 }
 
@@ -190,6 +195,12 @@ static int ide_cd_initfn(IDEDevice *dev)
     return ide_dev_initfn(dev, IDE_CD);
 }
 
+/* XenClient: ATAPI Pass Through */
+static int ide_cd_pt_initfn(IDEDevice *dev)
+{
+    return ide_dev_initfn(dev, IDE_CD_PT);
+}
+
 static int ide_drive_initfn(IDEDevice *dev)
 {
     DriveInfo *dinfo = drive_get_by_blockdev(dev->conf.bs);
@@ -251,6 +262,30 @@ static const TypeInfo ide_cd_info = {
     .class_init    = ide_cd_class_init,
 };
 
+/* XenClient: ATAPI Pass Through ------------------------------------------- */
+static Property ide_cd_pt_properties[] = {
+    DEFINE_IDE_DEV_PROPERTIES(),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
+static void ide_cd_pt_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+    IDEDeviceClass *k = IDE_DEVICE_CLASS(klass);
+    k->init = ide_cd_pt_initfn;
+    dc->fw_name = "drive";
+    dc->desc = "virtual IDE CD-ROM";
+    dc->props = ide_cd_pt_properties;
+}
+
+static const TypeInfo ide_cd_pt_info = {
+    .name          = "ide-cd-pt",
+    .parent        = TYPE_IDE_DEVICE,
+    .instance_size = sizeof(IDEDrive),
+    .class_init    = ide_cd_pt_class_init,
+};
+/* ------------------------------------------------------------------------- */
+
 static Property ide_drive_properties[] = {
     DEFINE_IDE_DEV_PROPERTIES(),
     DEFINE_PROP_END_OF_LIST(),
@@ -297,6 +332,8 @@ static void ide_register_types(void)
     type_register_static(&ide_cd_info);
     type_register_static(&ide_drive_info);
     type_register_static(&ide_device_type_info);
+    /* XenClient: ATAPI Pass Through */
+    type_register_static(&ide_cd_pt_info);
 }
 
 type_init(ide_register_types)

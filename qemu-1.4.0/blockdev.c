@@ -33,6 +33,8 @@ static const char *const if_name[IF_COUNT] = {
     [IF_SD] = "sd",
     [IF_VIRTIO] = "virtio",
     [IF_XEN] = "xen",
+    /* XenClient: ATAPI PassThrough device */
+    [IF_ATAPI_PT] = "atapi-pt",
 };
 
 static const int if_max_devs[IF_COUNT] = {
@@ -282,6 +284,7 @@ DriveInfo *drive_init(QemuOpts *opts, BlockInterfaceType block_default_type)
     const char *serial;
     const char *mediastr = "";
     BlockInterfaceType type;
+    int atapi_pt = 0;
     enum { MEDIA_DISK, MEDIA_CDROM } media;
     int bus_id, unit_id;
     int cyls, heads, secs, translation;
@@ -328,6 +331,9 @@ DriveInfo *drive_init(QemuOpts *opts, BlockInterfaceType block_default_type)
         type = block_default_type;
     }
 
+    /* XenClient: ATAPI PassThrough
+     * TODO: an ATAPI PT device still is an IDE device */
+    if (IF_ATAPI_PT == type) { type = IF_IDE; atapi_pt = 1; ro = 0; }
     max_devs = if_max_devs[type];
 
     if (cyls || heads || secs) {
@@ -555,11 +561,14 @@ DriveInfo *drive_init(QemuOpts *opts, BlockInterfaceType block_default_type)
     bdrv_set_io_limits(dinfo->bdrv, &io_limits);
 
     switch(type) {
+    case IF_ATAPI_PT: /* XenClient: ATAPI Pass Through */
     case IF_IDE:
     case IF_SCSI:
     case IF_XEN:
     case IF_NONE:
         dinfo->media_cd = media == MEDIA_CDROM;
+        /* XenClient: ATAPI Pass Through */
+        if (atapi_pt) { dinfo->atapi_pt = 1; }
         break;
     case IF_SD:
     case IF_FLOPPY:

@@ -449,4 +449,9 @@ int bdrv_debug_breakpoint(BlockDriverState *bs, const char *event,
 int bdrv_debug_resume(BlockDriverState *bs, const char *tag);
 bool bdrv_debug_is_suspended(BlockDriverState *bs, const char *tag);
 
+/* XenClient: ATAPI Pass Through */
+int bdrv_send_request_to_driver(BlockDriverState *bs, uint32_t const cmd);
+int bdrv_receive_data_from_driver(BlockDriverState *bs,
+                                  uint32_t const cmd, uint32_t * answer);
+
 #endif

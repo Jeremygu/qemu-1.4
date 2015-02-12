@@ -26,6 +26,8 @@
 #include "hw/ide/internal.h"
 #include "hw/scsi.h"
 
+//#define DEBUG_IDE_ATAPI
+
 static void ide_atapi_cmd_read_dma_cb(void *opaque, int ret);
 
 static void padstr8(uint8_t *buf, int buf_size, const char *src)
@@ -242,7 +244,7 @@ void ide_atapi_cmd_reply_end(IDEState *s)
 }
 
 /* send a reply of 'size' bytes in s->io_buffer to an ATAPI command */
-static void ide_atapi_cmd_reply(IDEState *s, int size, int max_size)
+void ide_atapi_cmd_reply(IDEState *s, int size, int max_size)
 {
     if (size > max_size)
         size = max_size;

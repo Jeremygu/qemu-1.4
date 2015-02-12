@@ -308,6 +308,8 @@ void bmdma_cmd_writeb(BMDMAState *bm, uint32_t val)
              * whole DMA operation will be submitted to disk with a single
              * aio operation with preadv/pwritev.
              */
+            /* XenClient: ATAPI-PT */
+            bmdma_cancel(bm);
             if (bm->bus->dma->aiocb) {
                 bdrv_drain_all();
                 assert(bm->bus->dma->aiocb == NULL);

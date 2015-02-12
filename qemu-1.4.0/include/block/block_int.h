@@ -204,6 +204,12 @@ struct BlockDriver {
      */
     int (*bdrv_has_zero_init)(BlockDriverState *bs);
 
+    /* XenClient: ATAPI Pass Through
+     * Allow the driver to receive command from the device emulation module */
+    int (*bdrv_receive_request_from_device)(BlockDriverState *bs,
+                                            uint32_t const cmd);
+    int (*bdrv_send_data_to_device)(BlockDriverState *bs,
+                                    uint32_t const cmd, uint32_t *data);
     QLIST_ENTRY(BlockDriver) list;
 };
 
