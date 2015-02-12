@@ -3659,6 +3659,10 @@ int main(int argc, char **argv, char **envp)
                 break;
             case QEMU_OPTION_name:
                 qemu_name = g_strdup(optarg);
+                /* XenClient: logging-syslog */
+#ifdef CONFIG_SYSLOG_LOGGING
+                logging_set_prefix(qemu_name);
+#endif
 		 {
 		     char *p = strchr(qemu_name, ',');
 		     if (p != NULL) {
