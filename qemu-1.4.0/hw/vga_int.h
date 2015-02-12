@@ -78,6 +78,8 @@
 
 #define VGA_OXT_BASE			0x3800
 #define VGA_OXT_SPINLOCK		VGA_OXT_BASE
+#define VGA_OXT_SHADOW_BDA_BASE		(VGA_OXT_BASE + 0x2)
+#define VGA_OXT_SHADOW_BDA_SIZE		0x38
 
 struct vga_precise_retrace {
     int64_t ticks_per_char;
@@ -185,6 +187,8 @@ typedef struct VGACommonState {
     uint8_t is_vbe_vmstate;
     /* ioport spinlock */
     bool locked;
+    /* shadow BDA */
+    uint8_t shadow_bda[VGA_OXT_SHADOW_BDA_SIZE];
 } VGACommonState;
 
 static inline int c6_to_8(int v)

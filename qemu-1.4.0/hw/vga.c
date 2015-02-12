@@ -2386,9 +2386,21 @@ static void spinlock_ioport_write(void *opaque, uint32_t addr, uint32_t val)
         s->locked = false;
     }
 }
+static uint32_t shadow_bda_ioport_read(void *opaque, uint32_t addr)
+{
+    VGACommonState *s = opaque;
+    return s->shadow_bda[addr - VGA_OXT_SHADOW_BDA_BASE];
+}
+static void shadow_bda_ioport_write(void *opaque, uint32_t addr, uint32_t val)
+{
+    VGACommonState *s = opaque;
+    s->shadow_bda[addr - VGA_OXT_SHADOW_BDA_BASE] = val;
+}
 
 static const MemoryRegionPortio oxt_portio_list[] = {
     { 0, 1, 2, .read = spinlock_ioport_read, .write = spinlock_ioport_write }, /* 0x3800 */
+    { 0x00, VGA_OXT_SHADOW_BDA_SIZE, 1, .read = shadow_bda_ioport_read,
+                                        .write = shadow_bda_ioport_write }, /* 0x3802-0x383F */
     PORTIO_END_OF_LIST(),
 };
 
