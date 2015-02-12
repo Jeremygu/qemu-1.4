@@ -1,0 +1,76 @@
+--- a/qemu-bridge-helper.c	2013-02-15 23:05:35.000000000 +0000
++++ b/qemu-bridge-helper.c	2014-12-05 17:01:51.000000000 +0000
+@@ -49,6 +49,64 @@
+ 
+ #define DEFAULT_ACL_FILE CONFIG_QEMU_CONFDIR "/bridge.conf"
+ 
++#include <syslog.h>
++#define SYSLOG_PREFIX   "qemu-brige-helper"
++#define SYSLOG_FACILITY (LOG_DAEMON)
++#define SYSLOG_LEVEL    (LOG_NOTICE)
++#define SYSLOG_OPTIONS  (LOG_NOWAIT | LOG_PID)
++static void __attribute__((constructor)) __syslog_init(void)
++{
++    openlog(SYSLOG_PREFIX, SYSLOG_OPTIONS, SYSLOG_FACILITY);
++}
++static void __attribute__((destructor)) __syslog_release(void)
++{
++    closelog();
++}
++static inline void __syslog_set_prefix(const char *prefix)
++{
++    closelog();
++    openlog(prefix, SYSLOG_OPTIONS, SYSLOG_FACILITY);
++}
++
++static inline int __syslog_vfprintf(FILE *stream, const char *fmt, va_list ap)
++{
++    (void) stream;
++    vsyslog(SYSLOG_FACILITY | SYSLOG_LEVEL, fmt, ap);
++    return 0;
++}
++
++static inline int  __attribute__((format(printf, 2, 3))) __syslog_fprintf(FILE *stream, const char *fmt, ...)
++{
++    va_list ap;
++
++    (void) stream;
++    va_start(ap, fmt);
++    __syslog_vfprintf(NULL, fmt, ap);
++    return 0;
++}
++
++static inline int __attribute__((format(printf, 1, 2))) __syslog_printf(const char *fmt, ...)
++{
++    va_list ap;
++
++    va_start(ap, fmt);
++    __syslog_vfprintf(NULL, fmt, ap);
++    return 0;
++}
++#ifdef vfprintf
++# undef vfprintf
++#endif
++#ifdef fprintf
++# undef fprintf
++#endif
++#ifdef printf
++# undef printf
++#endif
++
++#define vfprintf(stream, fmt, ap)   __syslog_vfprintf(stream, fmt, ap)
++#define fprintf(stream, fmt, ...)   __syslog_fprintf(stream, fmt, ##__VA_ARGS__)
++#define printf(fmt, ...)            __syslog_printf(fmt, ##__VA_ARGS__)
++
+ enum {
+     ACL_ALLOW = 0,
+     ACL_ALLOW_ALL,
+@@ -416,6 +474,8 @@
+     /* ... */
+ 
+     /* profit! */
++    fprintf(stdout, "qemu-bridge-helper successfully setup iface `%s' in bridge `%s'.\n",
++            iface, bridge);
+ 
+ cleanup:
+ 
