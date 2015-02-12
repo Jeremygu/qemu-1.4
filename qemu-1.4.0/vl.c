@@ -240,6 +240,7 @@ int boot_menu;
 uint8_t *boot_splash_filedata;
 size_t boot_splash_filedata_size;
 uint8_t qemu_extra_params_fw[2];
+int disable_audio_recording = 0;
 
 typedef struct FWBootEntry FWBootEntry;
 
@@ -3222,6 +3223,9 @@ int main(int argc, char **argv, char **envp)
                     exit(1);
                 }
                 select_soundhw (optarg);
+                break;
+            case QEMU_OPTION_disable_audio_rec:
+                disable_audio_recording = 1;
                 break;
             case QEMU_OPTION_h:
                 help(0);

@@ -25,6 +25,8 @@
 
 /* -------------------------------------------------------------------------- */
 
+extern int disable_audio_recording;
+
 typedef struct desc_param {
     uint32_t id;
     uint32_t val;
@@ -604,10 +606,13 @@ static void hda_audio_input_cb(void *opaque, int avail)
                 break;
             }
         }
-        rc = hda_codec_xfer(&st->state->hda, st->stream, false,
-                            st->buf, sizeof(st->buf));
-        if (!rc) {
-            break;
+        /* Only transfer input if allowed by the policy */
+        if (!disable_audio_recording) {
+            rc = hda_codec_xfer(&st->state->hda, st->stream, false,
+                                st->buf, sizeof(st->buf));
+            if (!rc) {
+                break;
+            }
         }
         st->bpos = 0;
     }

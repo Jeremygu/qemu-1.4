@@ -520,6 +520,14 @@ modprobe i810_audio clocking=48000
 @end example
 ETEXI
 
+DEF("disable-audio-rec", 0, QEMU_OPTION_disable_audio_rec,
+    "-disable-audio-rec Disable audio recording\n", QEMU_ARCH_ALL)
+STEXI
+@item -disable-audio-rec
+@findex -disable-audio-rec
+Disable audio recording in the guest.
+ETEXI
+
 DEF("balloon", HAS_ARG, QEMU_OPTION_balloon,
     "-balloon none   disable balloon device\n"
     "-balloon virtio[,addr=str]\n"

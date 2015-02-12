@@ -23,6 +23,8 @@
 #include "pci/pci.h"
 #include "sysemu/dma.h"
 
+extern int disable_audio_recording;
+
 enum {
     AC97_Reset                     = 0x00,
     AC97_Master_Volume_Mute        = 0x02,
@@ -1055,6 +1057,13 @@ static int read_audio (AC97LinkState *s, AC97BusMasterRegs *r,
     uint32_t nread = 0;
     int to_copy = 0;
     SWVoiceIn *voice = (r - s->bm_regs) == MC_INDEX ? s->voice_mc : s->voice_pi;
+
+    /* Disable audio recording. */
+    if (disable_audio_recording)
+    {
+        *stop = 1;
+        return 0;
+    }
 
     temp = audio_MIN (temp, max);
 
