@@ -450,7 +450,7 @@ go_physmap:
     xc_domain_pin_memory_cacheattr(xen_xc, xen_domid,
                                    start_addr >> TARGET_PAGE_BITS,
                                    (start_addr + size) >> TARGET_PAGE_BITS,
-                                   XEN_DOMCTL_MEM_CACHEATTR_WB);
+                                   XEN_DOMCTL_MEM_CACHEATTR_WC);
 
     snprintf(path, sizeof(path),
              "/local/domain/0/device-model/%d/physmap/%"PRIx64"/device_model",
@@ -1455,6 +1455,12 @@ void destroy_hvm_domain(bool reboot)
 void xen_register_framebuffer(MemoryRegion *mr)
 {
     framebuffer = mr;
+}
+
+/* HACK: Get the framebuffer MemoryRegion to setup Surfman's plugins. */
+MemoryRegion *xen_get_framebuffer(void)
+{
+    return framebuffer;
 }
 
 void xen_shutdown_fatal_error(const char *fmt, ...)
