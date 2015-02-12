@@ -167,6 +167,9 @@ struct DisplayChangeListener {
     void (*dpy_mouse_set)(struct DisplayState *s, int x, int y, int on);
     void (*dpy_cursor_define)(struct DisplayState *s, QEMUCursor *cursor);
 
+    void (*dpy_get_display_limits)(struct DisplayState *s, unsigned int *width, unsigned int *height,
+                                   unsigned int *stride_alignment);
+
     QLIST_ENTRY(DisplayChangeListener) next;
 };
 
@@ -348,6 +351,28 @@ static inline bool dpy_cursor_define_supported(struct DisplayState *s)
         }
     }
     return false;
+}
+
+static inline void dpy_get_display_limits(struct DisplayState *s, unsigned int *width, unsigned int *height,
+                                          unsigned int *stride_alignment)
+{
+    struct DisplayChangeListener *dcl;
+    unsigned int w, h, a;
+
+    *width = 1920;
+    *height = 1200;
+    *stride_alignment = 1;  /* HACK: Keep the biggest supported resolution and the smallest required stride alignment. */
+    QLIST_FOREACH(dcl, &s->listeners, next) {
+        if (dcl->dpy_get_display_limits) {
+            dcl->dpy_get_display_limits(s, &w, &h, &a);
+            if ((*width > w) || (*height > h)) {
+                *width = w;
+                *height = h;
+	    }
+            if (*stride_alignment < a)
+                *stride_alignment = a;
+        }
+    }
 }
 
 static inline int ds_get_linesize(DisplayState *ds)

@@ -933,3 +933,37 @@ int xenstore_update_power(enum xenstore_pm_type const type)
 
     return xenstore_write_int(dompath, "power-state", type);
 }
+
+
+/****************************************************
+ * XenClient: VBE exstentions. */
+bool xenstore_is_32bpp_only(void)
+{
+    char *domain_path;
+    int val;
+
+    domain_path = xs_get_domain_path(xenstore, xen_domid);
+    if (!domain_path) {
+        return false;
+    }
+    if (xenstore_read_int(domain_path, "platform/restrictdisplaydepth", &val)) {
+        return false;
+    }
+    return (val == 32);
+}
+
+bool xenstore_is_legacy_res_only(void)
+{
+    char *domain_path;
+    int val;
+
+    domain_path = xs_get_domain_path(xenstore, xen_domid);
+    if (!domain_path) {
+        return false;
+    }
+    if (xenstore_read_int(domain_path, "platform/restrictdisplayres", &val)) {
+        return false;
+    }
+    return !!val;
+}
+

@@ -81,5 +81,7 @@ enum xenstore_pm_type {
 };
 
 int xenstore_update_power(enum xenstore_pm_type const type);
+bool xenstore_is_32bpp_only(void);
+bool xenstore_is_legacy_res_only(void);
 
 #endif /* QEMU_HW_XEN_H */

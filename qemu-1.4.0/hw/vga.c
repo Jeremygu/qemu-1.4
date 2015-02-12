@@ -32,6 +32,10 @@
 #include "xen.h"
 #include "trace.h"
 
+#ifdef CONFIG_XEN
+# include "hw/xen.h"
+#endif
+
 //#define DEBUG_VGA
 //#define DEBUG_VGA_MEM
 //#define DEBUG_VGA_REG
@@ -619,6 +623,30 @@ uint32_t vbe_ioport_read_data(void *opaque, uint32_t addr)
         val = s->vram_size / (64 * 1024);
     } else {
         val = 0;
+        if (!(s->vbe_regs[VBE_DISPI_INDEX_ENABLE] & VBE_DISPI_GETCAPS)) {
+            uint32_t u1, u2;
+            switch (s->vbe_index) {
+                case VBE_DISPI_EXT_INDEX_EDID_XRES:
+                    dpy_get_display_limits(s->ds, &val, &u1, &u2);
+                    break;
+                case VBE_DISPI_EXT_INDEX_EDID_YRES:
+                    dpy_get_display_limits(s->ds, &u1, &val, &u2);
+                    break;
+                case VBE_DISPI_EXT_INDEX_STRIDE_ALIGN:
+                    dpy_get_display_limits(s->ds, &u1, &u2, &val);
+                    break;
+#ifdef CONFIG_XEN
+                case VBE_DISPI_EXT_INDEX_32BPP_ONLY:
+                    val = xenstore_is_32bpp_only();
+                    break;
+                case VBE_DISPI_EXT_INDEX_LEGACY_RES_ONLY:
+                    val = xenstore_is_legacy_res_only();
+                    break;
+#endif /* CONFIG_XEN */
+                default:
+                    break;
+            }
+        }
     }
 #ifdef DEBUG_BOCHS_VBE
     printf("VBE: read index=0x%x val=0x%x\n", s->vbe_index, val);
@@ -690,11 +718,13 @@ void vbe_ioport_write_data(void *opaque, uint32_t addr, uint32_t val)
                 s->vbe_regs[VBE_DISPI_INDEX_X_OFFSET] = 0;
                 s->vbe_regs[VBE_DISPI_INDEX_Y_OFFSET] = 0;
 
-                if (s->vbe_regs[VBE_DISPI_INDEX_BPP] == 4)
-                    s->vbe_line_offset = s->vbe_regs[VBE_DISPI_INDEX_XRES] >> 1;
-                else
-                    s->vbe_line_offset = s->vbe_regs[VBE_DISPI_INDEX_XRES] *
-                        ((s->vbe_regs[VBE_DISPI_INDEX_BPP] + 7) >> 3);
+                if (!s->vbe_ext_regs[VBE_DISPI_EXT_INDEX_STRIDE - VBE_DISPI_EXT_INDEX_START]) {
+                    if (s->vbe_regs[VBE_DISPI_INDEX_BPP] == 4)
+                        s->vbe_line_offset = s->vbe_regs[VBE_DISPI_INDEX_XRES] >> 1;
+                    else
+                        s->vbe_line_offset = s->vbe_regs[VBE_DISPI_INDEX_XRES] *
+                            ((s->vbe_regs[VBE_DISPI_INDEX_BPP] + 7) >> 3);
+                }
                 s->vbe_start_addr = 0;
 
                 /* clear the screen (should be done in BIOS) */
@@ -780,6 +810,16 @@ void vbe_ioport_write_data(void *opaque, uint32_t addr, uint32_t val)
             break;
         default:
             break;
+        }
+    } else if ((s->vbe_index >= VBE_DISPI_EXT_INDEX_START) &&
+        (s->vbe_index < VBE_DISPI_EXT_INDEX_START + VBE_DISPI_EXT_INDEX_NB)) {
+        switch (s->vbe_index) {
+            case VBE_DISPI_EXT_INDEX_STRIDE:
+                s->vbe_line_offset = val;
+                s->vbe_ext_regs[VBE_DISPI_EXT_INDEX_STRIDE - VBE_DISPI_EXT_INDEX_START] = val;
+                break;
+            default:
+                break;
         }
     }
 }
