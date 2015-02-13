@@ -15,20 +15,22 @@ fi
 # Create the patch (just current changes)
 if [ $# -eq 2 ]; then
     git diff > diff.patch
+    git diff --stat
 fi
 
 # Create the patch (specific commit to current)
-if [ $# -eq 2 ]; then
+if [ $# -eq 3 ]; then
     git diff $3 -- > diff.patch
+    git diff --stat $3 --
 fi
 
 # Create the patch (specific commits)
-if [ $# -eq 2 ]; then
+if [ $# -eq 4 ]; then
     git diff $3 $4 > diff.patch
+    git diff --stat $3 $4
 fi
 
 # Provide some stats so that the user can varify that the patch makes sense. 
-git diff --stat
 
 # Add the patch to the qemu recipe
 cp templates/qemu-dm_1.4.0.bb qemu-dm_1.4.0.bb
