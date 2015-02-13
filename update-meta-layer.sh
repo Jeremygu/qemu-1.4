@@ -1,14 +1,34 @@
 #!/bin/bash
 
 # Make sure that the arguments make sense. 
-if [ $# -ne 2 ]; then
-    echo "Usage: ./update-meta-layer <build dir> <revision #>"
+if [ $# -lt 2 ]; then
+    echo "Usage: ./update-meta-layer <build dir> <revision #> [older commit] [newer commit]"
     exit 1
 fi
 
-# TODO: Validate that the build dir makes sense by making sure a file exists. 
+# Make sure that a we are provided the correct build location. 
+if [ ! -f $1/do_build.sh ]; then
+    echo "The build dir provided is incorrect!!!"
+    exit 1
+fi
 
-git diff > diff.patch
+# Create the patch (just current changes)
+if [ $# -eq 2 ]; then
+    git diff > diff.patch
+fi
+
+# Create the patch (specific commit to current)
+if [ $# -eq 2 ]; then
+    git diff $3 -- > diff.patch
+fi
+
+# Create the patch (specific commits)
+if [ $# -eq 2 ]; then
+    git diff $3 $4 > diff.patch
+fi
+
+# Provide some stats so that the user can varify that the patch makes sense. 
+git diff --stat
 
 # Add the patch to the qemu recipe
 cp templates/qemu-dm_1.4.0.bb qemu-dm_1.4.0.bb
