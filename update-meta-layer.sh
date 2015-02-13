@@ -12,35 +12,39 @@ if [ ! -f $1/do_build.sh ]; then
     exit 1
 fi
 
+pushd qemu-1.4.0
+
 # Create the patch (just current changes)
 if [ $# -eq 2 ]; then
-    git diff > diff.patch
-    git diff --stat
+    git diff --relative --src-prefix=a/ --dst-prefix=b/ > ../diff.patch
+    git diff --relative --stat
 fi
 
 # Create the patch (specific commit to current)
 if [ $# -eq 3 ]; then
-    git diff $3 -- > diff.patch
-    git diff --stat $3 --
+    git diff --relative --src-prefix=a/ --dst-prefix=b/ $3 > ../diff.patch
+    git diff --relative --stat $3
 fi
 
 # Create the patch (specific commits)
 if [ $# -eq 4 ]; then
-    git diff $3 $4 > diff.patch
-    git diff --stat $3 $4
+    git diff --relative --src-prefix=a/ --dst-prefix=b/ $3 $4 > ../diff.patch
+    git diff --relative --stat $3 $4
 fi
+
+popd
 
 # Provide some stats so that the user can varify that the patch makes sense. 
 
 # Add the patch to the qemu recipe
 cp templates/qemu-dm_1.4.0.bb qemu-dm_1.4.0.bb
-echo 'SRC_URI += "file://diff.patch;striplevel=2"' >> qemu-dm_1.4.0.bb
+echo 'SRC_URI += "file://diff.patch;striplevel=1"' >> qemu-dm_1.4.0.bb
 echo "" >> qemu-dm_1.4.0.bb
 echo PR = "\"\${INC_PR}.$2\"" >> qemu-dm_1.4.0.bb
 
 # Add the patch to the qemu stubdomain recipe
 cp templates/qemu-dm-stubdom_1.4.0.bb qemu-dm-stubdom_1.4.0.bb 
-echo 'SRC_URI += "file://diff.patch;striplevel=2"' >> qemu-dm-stubdom_1.4.0.bb
+echo 'SRC_URI += "file://diff.patch;striplevel=1"' >> qemu-dm-stubdom_1.4.0.bb
 echo "" >> qemu-dm-stubdom_1.4.0.bb
 echo PR = "\"\${INC_PR}.$2\"" >> qemu-dm-stubdom_1.4.0.bb
 
